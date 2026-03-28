@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { supabase } from "../lib/supabase";
 
-export default function LoginPage({ setPage, onUserLogin, notify }) {
+export default function LoginPage({ setPage, notify }) {
   const [emailOrUsername, setEmailOrUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -24,8 +24,9 @@ export default function LoginPage({ setPage, onUserLogin, notify }) {
         password: password.trim(),
       });
 
+      console.log("LOGIN RESPONSE:", { data, error });
+
       if (error) {
-        console.error("LOGIN ERROR:", error);
         notify(error.message, "error", "Login failed");
         return;
       }
@@ -35,16 +36,11 @@ export default function LoginPage({ setPage, onUserLogin, notify }) {
         return;
       }
 
-      await onUserLogin(data.user);
       notify("Signed in successfully.", "success", "Welcome back");
       setPage("home");
     } catch (err) {
       console.error("LOGIN ERROR:", err);
-      notify(
-        "Something went wrong while signing in.",
-        "error",
-        "Login failed"
-      );
+      notify("Something went wrong while signing in.", "error", "Login failed");
     } finally {
       setLoading(false);
     }
