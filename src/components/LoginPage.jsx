@@ -1,19 +1,62 @@
 import { useState } from "react";
+import { supabase } from "../lib/supabase";
 
-export default function LoginPage({ setPage, onAdminLogin, account }) {
-  const [username, setUsername] = useState("");
+export default function LoginPage({ setPage, onUserLogin, notify }) {
+  const [emailOrUsername, setEmailOrUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const handleLogin = (e) => {
+  const timeoutPromise = (ms) =>
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Supabase request timed out")), ms)
+    );
+
+  const handleLogin = async (e) => {
     e.preventDefault();
 
-    if (username === account.username && password === account.password) {
-      onAdminLogin();
-      setPage("admin");
+    if (loading) return;
+
+    if (!emailOrUsername.trim() || !password.trim()) {
+      notify("Please fill in all fields.", "error", "Missing data");
       return;
     }
 
-    alert("Wrong credentials.");
+    try {
+      setLoading(true);
+
+      const result = await Promise.race([
+        supabase.auth.signInWithPassword({
+          email: emailOrUsername.trim(),
+          password: password.trim(),
+        }),
+        timeoutPromise(10000),
+      ]);
+
+      const { data, error } = result;
+
+      if (error) {
+        notify(error.message, "error", "Login failed");
+        return;
+      }
+
+      if (!data?.user) {
+        notify("Login failed.", "error", "Login failed");
+        return;
+      }
+
+      await onUserLogin(data.user);
+      notify("Signed in successfully.", "success", "Welcome back");
+      setPage("home");
+    } catch (err) {
+      console.error("LOGIN ERROR:", err);
+      notify(
+        err.message || "Something went wrong while signing in.",
+        "error",
+        "Login failed"
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -22,16 +65,16 @@ export default function LoginPage({ setPage, onAdminLogin, account }) {
         <div className="mb-6 text-center">
           <h1 className="text-3xl font-black text-white">Login</h1>
           <p className="mt-2 text-sm text-slate-400">
-            Sign in to access the admin panel
+            Sign in to your account
           </p>
         </div>
 
         <form onSubmit={handleLogin} className="space-y-4">
           <input
-            type="text"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            placeholder="Username"
+            type="email"
+            value={emailOrUsername}
+            onChange={(e) => setEmailOrUsername(e.target.value)}
+            placeholder="Email address"
             className="w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500"
           />
 
@@ -45,9 +88,10 @@ export default function LoginPage({ setPage, onAdminLogin, account }) {
 
           <button
             type="submit"
-            className="w-full rounded-2xl bg-cyan-400 px-5 py-3.5 font-bold text-slate-950"
+            disabled={loading}
+            className="w-full rounded-2xl bg-cyan-400 px-5 py-3.5 font-bold text-slate-950 disabled:opacity-60"
           >
-            Sign In
+            {loading ? "Signing in..." : "Sign In"}
           </button>
         </form>
 

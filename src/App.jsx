@@ -13,7 +13,9 @@ import LoginPage from "./components/LoginPage";
 import RegisterPage from "./components/RegisterPage";
 import AdminPage from "./components/AdminPage";
 import AccountPage from "./components/AccountPage";
-import { productsData } from "./data/storeData";
+import Toast from "./components/Toast";
+import ConfirmDialog from "./components/ConfirmDialog";
+import { supabase } from "./lib/supabase";
 import { Search, Check, ChevronDown } from "lucide-react";
 
 function getPageFromPath(pathname) {
@@ -84,6 +86,7 @@ function ShopPage({
         !q ||
         item.name.toLowerCase().includes(q) ||
         item.short.toLowerCase().includes(q);
+
       return matchCat && matchQuery;
     });
   }, [products, query, selectedCategory]);
@@ -162,65 +165,194 @@ function ShopPage({
 }
 
 export default function App() {
-  const [page, setPage] = useState(() => getPageFromPath(window.location.pathname));
+  const [page, setPage] = useState(() =>
+    getPageFromPath(window.location.pathname)
+  );
   const [selectedCategory, setSelectedCategory] = useState("all");
-  const [selectedProduct, setSelectedProduct] = useState(productsData[0]);
+  const [selectedProduct, setSelectedProduct] = useState(null);
   const [heroQuery, setHeroQuery] = useState("");
   const [cartPulse, setCartPulse] = useState(false);
-  const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(
-    localStorage.getItem("fakeAdminLoggedIn") === "true"
-  );
 
-  const [account, setAccount] = useState(() => {
-    const saved = localStorage.getItem("fakeAdminAccount");
-    if (saved) {
+  const [currentUser, setCurrentUser] = useState(null);
+  const [currentProfile, setCurrentProfile] = useState(null);
+
+  const [products, setProducts] = useState([]);
+  const [cart, setCart] = useState([]);
+
+  const [toast, setToast] = useState({
+    show: false,
+    message: "",
+    type: "success",
+    title: "",
+  });
+
+  const [confirmState, setConfirmState] = useState({
+    open: false,
+    title: "",
+    message: "",
+    confirmText: "Confirm",
+    cancelText: "Cancel",
+    danger: false,
+    resolver: null,
+  });
+
+  const isAdmin = currentProfile?.role === "admin";
+  const isLoggedIn = !!currentUser;
+
+  const notify = (message, type = "success", title = "") => {
+    setToast({
+      show: true,
+      message,
+      type,
+      title,
+    });
+
+    window.clearTimeout(window.__toastTimeout);
+    window.__toastTimeout = window.setTimeout(() => {
+      setToast((prev) => ({ ...prev, show: false }));
+    }, 3400);
+  };
+
+  const closeToast = () => {
+    setToast((prev) => ({ ...prev, show: false }));
+  };
+
+  const askConfirm = ({
+    title,
+    message,
+    confirmText = "Confirm",
+    cancelText = "Cancel",
+    danger = false,
+  }) =>
+    new Promise((resolve) => {
+      setConfirmState({
+        open: true,
+        title,
+        message,
+        confirmText,
+        cancelText,
+        danger,
+        resolver: resolve,
+      });
+    });
+
+  const handleConfirm = () => {
+    confirmState.resolver?.(true);
+    setConfirmState((prev) => ({ ...prev, open: false, resolver: null }));
+  };
+
+  const handleCancelConfirm = () => {
+    confirmState.resolver?.(false);
+    setConfirmState((prev) => ({ ...prev, open: false, resolver: null }));
+  };
+
+  useEffect(() => {
+    const loadSession = async () => {
       try {
-        return JSON.parse(saved);
-      } catch {
-        return {
-          username: "admin",
-          email: "admin@example.com",
-          fullName: "Admin User",
-          password: "admin",
-        };
-      }
-    }
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
 
-    return {
-      username: "admin",
-      email: "admin@example.com",
-      fullName: "Admin User",
-      password: "admin",
+        if (!session?.user) {
+          setCurrentUser(null);
+          setCurrentProfile(null);
+          return;
+        }
+
+        setCurrentUser(session.user);
+
+        const { data: profile, error } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", session.user.id)
+          .maybeSingle();
+
+        if (error) {
+          console.error("PROFILE FETCH ERROR:", error);
+          setCurrentProfile(null);
+        } else {
+          setCurrentProfile(profile || null);
+        }
+      } catch (err) {
+        console.error("SESSION LOAD ERROR:", err);
+        setCurrentUser(null);
+        setCurrentProfile(null);
+      }
     };
-  });
 
-  const [products, setProducts] = useState(() => {
-    const saved = localStorage.getItem("storeProducts");
-    if (saved) {
+    loadSession();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
       try {
-        return JSON.parse(saved);
-      } catch {
-        return productsData;
+        if (!session?.user) {
+          setCurrentUser(null);
+          setCurrentProfile(null);
+          return;
+        }
+
+        setCurrentUser(session.user);
+
+        const { data: profile, error } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", session.user.id)
+          .maybeSingle();
+
+        if (error) {
+          console.error("PROFILE FETCH ERROR:", error);
+          setCurrentProfile(null);
+        } else {
+          setCurrentProfile(profile || null);
+        }
+      } catch (err) {
+        console.error("AUTH STATE ERROR:", err);
+        setCurrentUser(null);
+        setCurrentProfile(null);
       }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const fetchProducts = async () => {
+      try {
+        const { data, error } = await supabase
+          .from("products")
+          .select("*")
+          .order("created_at", { ascending: false });
+
+        if (error) {
+          console.error("PRODUCT FETCH ERROR:", error);
+          setProducts([]);
+          return;
+        }
+
+        const loadedProducts = data || [];
+        setProducts(loadedProducts);
+
+        if (loadedProducts.length > 0 && !selectedProduct) {
+          setSelectedProduct(loadedProducts[0]);
+        }
+      } catch (err) {
+        console.error("PRODUCT FETCH ERROR:", err);
+        setProducts([]);
+      }
+    };
+
+    fetchProducts();
+  }, []);
+
+  useEffect(() => {
+    if (page === "admin" && !isAdmin) {
+      setPage("login");
+      window.history.replaceState({}, "", "/login");
+      return;
     }
-    return productsData;
-  });
 
-  const [cart, setCart] = useState([
-    { ...productsData[2], qty: 1 },
-    { ...productsData[3], qty: 1 },
-  ]);
-
-  useEffect(() => {
-    localStorage.setItem("storeProducts", JSON.stringify(products));
-  }, [products]);
-
-  useEffect(() => {
-    localStorage.setItem("fakeAdminAccount", JSON.stringify(account));
-  }, [account]);
-
-  useEffect(() => {
-    if ((page === "admin" || page === "account") && !isAdminLoggedIn) {
+    if (page === "account" && !isLoggedIn) {
       setPage("login");
       window.history.replaceState({}, "", "/login");
       return;
@@ -230,13 +362,19 @@ export default function App() {
     if (window.location.pathname !== desiredPath) {
       window.history.pushState({}, "", desiredPath);
     }
-  }, [page, isAdminLoggedIn]);
+  }, [page, isAdmin, isLoggedIn]);
 
   useEffect(() => {
     const handlePopState = () => {
       const nextPage = getPageFromPath(window.location.pathname);
 
-      if ((nextPage === "admin" || nextPage === "account") && !isAdminLoggedIn) {
+      if (nextPage === "admin" && !isAdmin) {
+        setPage("login");
+        window.history.replaceState({}, "", "/login");
+        return;
+      }
+
+      if (nextPage === "account" && !isLoggedIn) {
         setPage("login");
         window.history.replaceState({}, "", "/login");
         return;
@@ -247,7 +385,7 @@ export default function App() {
 
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [isAdminLoggedIn]);
+  }, [isAdmin, isLoggedIn]);
 
   useEffect(() => {
     const path = window.location.pathname;
@@ -258,16 +396,22 @@ export default function App() {
       return;
     }
 
-    const currentPage = getPageFromPath(path);
+    const currentPageFromPath = getPageFromPath(path);
 
-    if ((currentPage === "admin" || currentPage === "account") && !isAdminLoggedIn) {
+    if (currentPageFromPath === "admin" && !isAdmin) {
       window.history.replaceState({}, "", "/login");
       setPage("login");
       return;
     }
 
-    setPage(currentPage);
-  }, [isAdminLoggedIn]);
+    if (currentPageFromPath === "account" && !isLoggedIn) {
+      window.history.replaceState({}, "", "/login");
+      setPage("login");
+      return;
+    }
+
+    setPage(currentPageFromPath);
+  }, [isAdmin, isLoggedIn]);
 
   const addToCart = (product) => {
     setCart((prev) => {
@@ -282,50 +426,163 @@ export default function App() {
 
     setCartPulse(true);
     window.setTimeout(() => setCartPulse(false), 650);
+    notify("Product added to cart.", "success", "Cart updated");
   };
 
-  const addProduct = (product) => {
-    setProducts((prev) => [product, ...prev]);
-    setSelectedProduct(product);
-  };
+  const addProduct = async (product) => {
+    try {
+      const payload = {
+        name: product.name,
+        category: product.category,
+        price: Number(product.price),
+        old_price: Number(product.oldPrice || product.price),
+        rating: Number(product.rating || 0),
+        badge: product.badge || "",
+        short: product.short || "",
+        image: product.image || "",
+        specs: Array.isArray(product.specs) ? product.specs : [],
+      };
 
-  const updateProduct = (updatedProduct) => {
-    setProducts((prev) =>
-      prev.map((item) =>
-        item.id === updatedProduct.id ? updatedProduct : item
-      )
-    );
+      const { data, error } = await supabase
+        .from("products")
+        .insert([payload])
+        .select()
+        .single();
 
-    if (selectedProduct?.id === updatedProduct.id) {
-      setSelectedProduct(updatedProduct);
+      if (error) {
+        console.error("ADD PRODUCT ERROR:", error);
+        notify(error.message, "error", "Add failed");
+        return;
+      }
+
+      const normalized = {
+        ...data,
+        oldPrice: data.old_price,
+      };
+
+      setProducts((prev) => [normalized, ...prev]);
+      setSelectedProduct(normalized);
+      notify("Product added successfully.", "success", "Saved");
+    } catch (err) {
+      console.error("ADD PRODUCT ERROR:", err);
+      notify("Failed to add product.", "error", "Add failed");
     }
   };
 
-  const deleteProduct = (id) => {
-    setProducts((prev) => prev.filter((item) => item.id !== id));
-    setCart((prev) => prev.filter((item) => item.id !== id));
+  const updateProduct = async (updatedProduct) => {
+    try {
+      const payload = {
+        name: updatedProduct.name,
+        category: updatedProduct.category,
+        price: Number(updatedProduct.price),
+        old_price: Number(updatedProduct.oldPrice || updatedProduct.price),
+        rating: Number(updatedProduct.rating || 0),
+        badge: updatedProduct.badge || "",
+        short: updatedProduct.short || "",
+        image: updatedProduct.image || "",
+        specs: Array.isArray(updatedProduct.specs)
+          ? updatedProduct.specs
+          : [],
+      };
 
-    if (selectedProduct?.id === id) {
-      const fallback =
-        products.find((item) => item.id !== id) || productsData[0];
-      setSelectedProduct(fallback);
+      const { data, error } = await supabase
+        .from("products")
+        .update(payload)
+        .eq("id", updatedProduct.id)
+        .select()
+        .single();
+
+      if (error) {
+        console.error("UPDATE PRODUCT ERROR:", error);
+        notify(error.message, "error", "Update failed");
+        return;
+      }
+
+      const normalized = {
+        ...data,
+        oldPrice: data.old_price,
+      };
+
+      setProducts((prev) =>
+        prev.map((item) => (item.id === normalized.id ? normalized : item))
+      );
+
+      if (selectedProduct?.id === normalized.id) {
+        setSelectedProduct(normalized);
+      }
+
+      notify("Product updated successfully.", "success", "Updated");
+    } catch (err) {
+      console.error("UPDATE PRODUCT ERROR:", err);
+      notify("Failed to update product.", "error", "Update failed");
     }
   };
 
-  const updateAccount = (newAccount) => {
-    setAccount(newAccount);
+  const deleteProduct = async (id) => {
+    try {
+      const { error } = await supabase.from("products").delete().eq("id", id);
+
+      if (error) {
+        console.error("DELETE PRODUCT ERROR:", error);
+        notify(error.message, "error", "Delete failed");
+        return;
+      }
+
+      setProducts((prev) => prev.filter((item) => item.id !== id));
+      setCart((prev) => prev.filter((item) => item.id !== id));
+
+      if (selectedProduct?.id === id) {
+        const remaining = products.filter((item) => item.id !== id);
+        setSelectedProduct(remaining[0] || null);
+      }
+
+      notify("Product deleted successfully.", "success", "Deleted");
+    } catch (err) {
+      console.error("DELETE PRODUCT ERROR:", err);
+      notify("Failed to delete product.", "error", "Delete failed");
+    }
   };
 
-  const onAdminLogin = () => {
-    localStorage.setItem("fakeAdminLoggedIn", "true");
-    setIsAdminLoggedIn(true);
+  const onUserLogin = async (user) => {
+    try {
+      setCurrentUser(user);
+
+      const { data: profile, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (error) {
+        console.error("PROFILE LOAD ERROR:", error);
+        setCurrentProfile(null);
+        return;
+      }
+
+      setCurrentProfile(profile || null);
+    } catch (err) {
+      console.error("onUserLogin ERROR:", err);
+      setCurrentProfile(null);
+    }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem("fakeAdminLoggedIn");
-    setIsAdminLoggedIn(false);
+  const handleLogout = async () => {
+    const wasUserLoggedIn = !!currentUser;
+
+    setCurrentUser(null);
+    setCurrentProfile(null);
     setPage("home");
     window.history.replaceState({}, "", "/home");
+
+    if (wasUserLoggedIn) {
+      try {
+        await supabase.auth.signOut({ scope: "local" });
+      } catch (err) {
+        console.error("LOGOUT ERROR:", err);
+      }
+    }
+
+    notify("You have been signed out.", "success", "Signed out");
   };
 
   const cartCount = cart.reduce((sum, item) => sum + item.qty, 0);
@@ -338,12 +595,26 @@ export default function App() {
           'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
       }}
     >
+      <Toast toast={toast} onClose={closeToast} />
+
+      <ConfirmDialog
+        open={confirmState.open}
+        title={confirmState.title}
+        message={confirmState.message}
+        confirmText={confirmState.confirmText}
+        cancelText={confirmState.cancelText}
+        danger={confirmState.danger}
+        onConfirm={handleConfirm}
+        onCancel={handleCancelConfirm}
+      />
+
       <Header
         cartCount={cartCount}
         page={page}
         setPage={setPage}
         cartPulse={cartPulse}
-        isAdminLoggedIn={isAdminLoggedIn}
+        currentUser={currentUser}
+        currentProfile={currentProfile}
         onLogout={handleLogout}
       />
 
@@ -376,7 +647,7 @@ export default function App() {
         />
       )}
 
-      {page === "product" && (
+      {page === "product" && selectedProduct && (
         <ProductPage addToCart={addToCart} item={selectedProduct} />
       )}
 
@@ -389,28 +660,34 @@ export default function App() {
       {page === "login" && (
         <LoginPage
           setPage={setPage}
-          onAdminLogin={onAdminLogin}
-          account={account}
+          onUserLogin={onUserLogin}
+          notify={notify}
         />
       )}
 
-      {page === "register" && <RegisterPage setPage={setPage} />}
+      {page === "register" && (
+        <RegisterPage setPage={setPage} notify={notify} />
+      )}
 
-      {page === "admin" && isAdminLoggedIn && (
+      {page === "admin" && isAdmin && (
         <AdminPage
           setPage={setPage}
           products={products}
           addProduct={addProduct}
           updateProduct={updateProduct}
           deleteProduct={deleteProduct}
+          notify={notify}
+          askConfirm={askConfirm}
         />
       )}
 
-      {page === "account" && isAdminLoggedIn && (
+      {page === "account" && isLoggedIn && (
         <AccountPage
           setPage={setPage}
-          account={account}
-          updateAccount={updateAccount}
+          currentUser={currentUser}
+          currentProfile={currentProfile}
+          setCurrentProfile={setCurrentProfile}
+          notify={notify}
         />
       )}
 

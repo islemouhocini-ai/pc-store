@@ -6,12 +6,13 @@ export default function Header({
   page,
   setPage,
   cartPulse,
-  isAdminLoggedIn,
+  currentUser,
+  currentProfile,
   onLogout,
 }) {
   const [open, setOpen] = useState(false);
-  const [adminMenuOpen, setAdminMenuOpen] = useState(false);
-  const adminMenuRef = useRef(null);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const accountMenuRef = useRef(null);
 
   const links = [
     ["Home", "home"],
@@ -21,13 +22,16 @@ export default function Header({
     ["Checkout", "checkout"],
   ];
 
+  const isLoggedIn = !!currentUser;
+  const isAdmin = currentProfile?.role === "admin";
+
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (
-        adminMenuRef.current &&
-        !adminMenuRef.current.contains(event.target)
+        accountMenuRef.current &&
+        !accountMenuRef.current.contains(event.target)
       ) {
-        setAdminMenuOpen(false);
+        setAccountMenuOpen(false);
       }
     };
 
@@ -70,47 +74,50 @@ export default function Header({
         </div>
 
         <div className="flex items-center gap-3 justify-self-end">
-          <div className="relative" ref={adminMenuRef}>
+          <div className="relative" ref={accountMenuRef}>
             <button
               onClick={() => {
-                if (isAdminLoggedIn) {
-                  setAdminMenuOpen((prev) => !prev);
+                if (isLoggedIn) {
+                  setAccountMenuOpen((prev) => !prev);
                 } else {
                   setPage("login");
                 }
               }}
               className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] p-3 shadow-lg shadow-black/20 transition hover:bg-white/[0.08]"
             >
-              {isAdminLoggedIn ? (
-                <>
-                  <Shield className="h-5 w-5" />
-                  <ChevronDown
-                    className={`h-4 w-4 transition ${
-                      adminMenuOpen ? "rotate-180" : "rotate-0"
-                    }`}
-                  />
-                </>
+              {isAdmin ? (
+                <Shield className="h-5 w-5" />
               ) : (
                 <User className="h-5 w-5" />
               )}
+
+              {isLoggedIn ? (
+                <ChevronDown
+                  className={`h-4 w-4 transition ${
+                    accountMenuOpen ? "rotate-180" : "rotate-0"
+                  }`}
+                />
+              ) : null}
             </button>
 
-            {isAdminLoggedIn && adminMenuOpen && (
+            {isLoggedIn && accountMenuOpen && (
               <div className="absolute right-0 top-[calc(100%+10px)] z-50 w-52 rounded-2xl border border-cyan-400/20 bg-slate-900/80 p-2 backdrop-blur-2xl shadow-[0_20px_60px_rgba(2,8,23,0.55)]">
-                <button
-                  onClick={() => {
-                    setPage("admin");
-                    setAdminMenuOpen(false);
-                  }}
-                  className="w-full rounded-xl px-3 py-2.5 text-left text-sm text-slate-200 transition hover:bg-white/[0.05] hover:text-white"
-                >
-                  Edit Products
-                </button>
+                {isAdmin ? (
+                  <button
+                    onClick={() => {
+                      setPage("admin");
+                      setAccountMenuOpen(false);
+                    }}
+                    className="w-full rounded-xl px-3 py-2.5 text-left text-sm text-slate-200 transition hover:bg-white/[0.05] hover:text-white"
+                  >
+                    Edit Products
+                  </button>
+                ) : null}
 
                 <button
                   onClick={() => {
                     setPage("account");
-                    setAdminMenuOpen(false);
+                    setAccountMenuOpen(false);
                   }}
                   className="w-full rounded-xl px-3 py-2.5 text-left text-sm text-slate-200 transition hover:bg-white/[0.05] hover:text-white"
                 >
@@ -118,9 +125,9 @@ export default function Header({
                 </button>
 
                 <button
-                  onClick={() => {
-                    onLogout();
-                    setAdminMenuOpen(false);
+                  onClick={async () => {
+                    setAccountMenuOpen(false);
+                    await onLogout();
                   }}
                   className="w-full rounded-xl px-3 py-2.5 text-left text-sm text-red-300 transition hover:bg-red-500/10"
                 >
@@ -170,7 +177,7 @@ export default function Header({
               </button>
             ))}
 
-            {!isAdminLoggedIn ? (
+            {!isLoggedIn ? (
               <button
                 onClick={() => {
                   setPage("login");
@@ -182,15 +189,17 @@ export default function Header({
               </button>
             ) : (
               <>
-                <button
-                  onClick={() => {
-                    setPage("admin");
-                    setOpen(false);
-                  }}
-                  className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-left text-sm text-slate-200"
-                >
-                  Edit Products
-                </button>
+                {isAdmin ? (
+                  <button
+                    onClick={() => {
+                      setPage("admin");
+                      setOpen(false);
+                    }}
+                    className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-left text-sm text-slate-200"
+                  >
+                    Edit Products
+                  </button>
+                ) : null}
 
                 <button
                   onClick={() => {
@@ -203,9 +212,9 @@ export default function Header({
                 </button>
 
                 <button
-                  onClick={() => {
-                    onLogout();
+                  onClick={async () => {
                     setOpen(false);
+                    await onLogout();
                   }}
                   className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-2 text-left text-sm text-red-300"
                 >
