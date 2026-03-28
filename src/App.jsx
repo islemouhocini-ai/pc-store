@@ -309,4 +309,25 @@ export default function App() {
         <Services />
         <Categories setPage={setPage} setSelectedCategory={setSelectedCategory} />
         <Featured addToCart={addToCart} setPage={setPage} setSelectedProduct={setSelectedProduct} products={products} />
-     
+      </>}
+
+      {page==="shop" && <ShopPage addToCart={addToCart} selectedCategory={selectedCategory} setSelectedCategory={setSelectedCategory} setPage={setPage} setSelectedProduct={setSelectedProduct} heroQuery={heroQuery} products={products} />}
+
+      {page==="product" && selectedProduct && <ProductPage addToCart={addToCart} item={selectedProduct} />}
+
+      {page==="cart" && <CartPage cart={cart} setCart={setCart} setPage={setPage} />}
+
+      {page==="checkout" && <CheckoutPage />}
+
+      {page==="login" && <LoginPage setPage={setPage} onUserLogin={onUserLogin} notify={notify} />}
+
+      {page==="register" && <RegisterPage setPage={setPage} notify={notify} />}
+
+      {page==="admin" && isAdmin && <AdminPage setPage={setPage} products={products} addProduct={addProduct} updateProduct={updateProduct} deleteProduct={deleteProduct} notify={notify} askConfirm={askConfirm} />}
+
+      {page==="account" && isLoggedIn && <AccountPage setPage={setPage} currentUser={currentUser} currentProfile={currentProfile} setCurrentProfile={setCurrentProfile} notify={notify} />}
+
+      <Footer setPage={setPage} />
+    </div>
+  );
+}
