@@ -38,6 +38,16 @@ function getPageFromPath(pathname) {
   return "home";
 }
 
+function normalizeProduct(item) {
+  return {
+    ...item,
+    oldPrice: item.oldPrice ?? item.old_price ?? item.price ?? 0,
+    specs: Array.isArray(item.specs) ? item.specs : [],
+    rating: Number(item.rating ?? 0),
+    price: Number(item.price ?? 0),
+  };
+}
+
 function ShopPage({
   addToCart,
   selectedCategory,
@@ -246,6 +256,39 @@ export default function App() {
     setConfirmState((prev) => ({ ...prev, open: false, resolver: null }));
   };
 
+  const fetchProducts = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("products")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error("PRODUCT FETCH ERROR:", error);
+        notify("Could not refresh products right now.", "error", "Network issue");
+        return;
+      }
+
+      const loadedProducts = (data || []).map(normalizeProduct);
+      console.log("FETCHED PRODUCTS:", loadedProducts);
+
+      setProducts(loadedProducts);
+
+      if (loadedProducts.length > 0) {
+        setSelectedProduct((prev) => {
+          if (!prev) return loadedProducts[0];
+          const stillExists = loadedProducts.find((p) => p.id === prev.id);
+          return stillExists || loadedProducts[0];
+        });
+      } else {
+        setSelectedProduct(null);
+      }
+    } catch (err) {
+      console.error("PRODUCT FETCH ERROR:", err);
+      notify("Could not refresh products right now.", "error", "Network issue");
+    }
+  };
+
   useEffect(() => {
     const loadSession = async () => {
       try {
@@ -317,32 +360,27 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const fetchProducts = async () => {
-      try {
-        const { data, error } = await supabase
-          .from("products")
-          .select("*")
-          .order("created_at", { ascending: false });
+    fetchProducts();
+  }, []);
 
-        if (error) {
-          console.error("PRODUCT FETCH ERROR:", error);
-          setProducts([]);
-          return;
-        }
-
-        const loadedProducts = data || [];
-        setProducts(loadedProducts);
-
-        if (loadedProducts.length > 0 && !selectedProduct) {
-          setSelectedProduct(loadedProducts[0]);
-        }
-      } catch (err) {
-        console.error("PRODUCT FETCH ERROR:", err);
-        setProducts([]);
+  useEffect(() => {
+    const handleVisible = () => {
+      if (document.visibilityState === "visible") {
+        fetchProducts();
       }
     };
 
-    fetchProducts();
+    const handleOnline = () => {
+      fetchProducts();
+    };
+
+    document.addEventListener("visibilitychange", handleVisible);
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisible);
+      window.removeEventListener("online", handleOnline);
+    };
   }, []);
 
   useEffect(() => {
@@ -455,13 +493,11 @@ export default function App() {
         return;
       }
 
-      const normalized = {
-        ...data,
-        oldPrice: data.old_price,
-      };
-
+      const normalized = normalizeProduct(data);
       setProducts((prev) => [normalized, ...prev]);
       setSelectedProduct(normalized);
+
+      await fetchProducts();
       notify("Product added successfully.", "success", "Saved");
     } catch (err) {
       console.error("ADD PRODUCT ERROR:", err);
@@ -498,10 +534,7 @@ export default function App() {
         return;
       }
 
-      const normalized = {
-        ...data,
-        oldPrice: data.old_price,
-      };
+      const normalized = normalizeProduct(data);
 
       setProducts((prev) =>
         prev.map((item) => (item.id === normalized.id ? normalized : item))
@@ -511,6 +544,7 @@ export default function App() {
         setSelectedProduct(normalized);
       }
 
+      await fetchProducts();
       notify("Product updated successfully.", "success", "Updated");
     } catch (err) {
       console.error("UPDATE PRODUCT ERROR:", err);
@@ -536,6 +570,7 @@ export default function App() {
         setSelectedProduct(remaining[0] || null);
       }
 
+      await fetchProducts();
       notify("Product deleted successfully.", "success", "Deleted");
     } catch (err) {
       console.error("DELETE PRODUCT ERROR:", err);
@@ -567,22 +602,24 @@ export default function App() {
   };
 
   const handleLogout = async () => {
-    const wasUserLoggedIn = !!currentUser;
+    try {
+      const { error } = await supabase.auth.signOut();
 
-    setCurrentUser(null);
-    setCurrentProfile(null);
-    setPage("home");
-    window.history.replaceState({}, "", "/home");
-
-    if (wasUserLoggedIn) {
-      try {
-        await supabase.auth.signOut({ scope: "local" });
-      } catch (err) {
-        console.error("LOGOUT ERROR:", err);
+      if (error) {
+        console.error("LOGOUT ERROR:", error);
+        notify(error.message, "error", "Logout failed");
+        return;
       }
-    }
 
-    notify("You have been signed out.", "success", "Signed out");
+      setCurrentUser(null);
+      setCurrentProfile(null);
+      setPage("home");
+      window.history.replaceState({}, "", "/home");
+      notify("You have been signed out.", "success", "Signed out");
+    } catch (err) {
+      console.error("LOGOUT ERROR:", err);
+      notify("Logout failed.", "error", "Logout failed");
+    }
   };
 
   const cartCount = cart.reduce((sum, item) => sum + item.qty, 0);

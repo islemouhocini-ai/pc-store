@@ -6,11 +6,6 @@ export default function LoginPage({ setPage, onUserLogin, notify }) {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const timeoutPromise = (ms) =>
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("Supabase request timed out")), ms)
-    );
-
   const handleLogin = async (e) => {
     e.preventDefault();
 
@@ -24,17 +19,13 @@ export default function LoginPage({ setPage, onUserLogin, notify }) {
     try {
       setLoading(true);
 
-      const result = await Promise.race([
-        supabase.auth.signInWithPassword({
-          email: emailOrUsername.trim(),
-          password: password.trim(),
-        }),
-        timeoutPromise(10000),
-      ]);
-
-      const { data, error } = result;
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: emailOrUsername.trim(),
+        password: password.trim(),
+      });
 
       if (error) {
+        console.error("LOGIN ERROR:", error);
         notify(error.message, "error", "Login failed");
         return;
       }
@@ -50,7 +41,7 @@ export default function LoginPage({ setPage, onUserLogin, notify }) {
     } catch (err) {
       console.error("LOGIN ERROR:", err);
       notify(
-        err.message || "Something went wrong while signing in.",
+        "Something went wrong while signing in.",
         "error",
         "Login failed"
       );
